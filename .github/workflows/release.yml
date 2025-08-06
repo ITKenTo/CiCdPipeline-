@@ -1,59 +1,48 @@
-name: Deploy To Google Play
+name: Android Release Build
 
 on:
   push:
-    branches: [main]
+    tags:
+      - '1.0.0'
 
 jobs:
-  test:
-    name: Unit Test
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
       - name: Setup JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: 21
-          cache: 'gradle'
 
-      - name: Grant execute permissions for gradlew
-        run: chmod +x gradlew
+      - name: Decode keystore from secret
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > keystore.jks
 
-      - name: Run unit tests
-        run: ./gradlew clean testDebug
+      - name: Create signing.properties
+        run: |
+          cat <<EOF > signing.properties
+          storeFile=keystore.jks
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_DEVS_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_DEVS_ALIAS_PASSWORD }}
+          EOF
 
-  distribute:
-    name: Distribute bundle to Google Play
-    needs: test
-    runs-on: ubuntu-latest
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
 
-    steps:
-      - uses: actions/checkout@v4
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
 
-      - name: Setup JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: 21
-          cache: 'gradle'
-
-      - name: Version Bump
-        uses: chkfung/android-version-actions@v1.2.3
-        with:
-          gradlePath: app/build.gradle.kts
-          versionCode: ${{ github.run_number }}
-
-      - name: Assemble Release Bundle
+      - name: Build AAB
         run: ./gradlew bundleRelease
 
-      - name: Sign Release
-        uses: r0adkll/sign-android-release@v1
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
         with:
-          releaseDirectory: app/build/outputs/bundle/release
-          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          alias: ${{ secrets.ANDROID_DEVS_ALIAS }}
-          keyPassword: ${{ secrets.ANDROID_DEVS_ALIAS_PASSWORD }}
+          name: app-release
+          path: app/build/outputs/apk/release/app-release.apk
